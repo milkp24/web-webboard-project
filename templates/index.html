@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Web Board PRO MAX</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <style>
+        body {
+            background: radial-gradient(circle, #0f172a, #020617);
+            color: white;
+        }
+
+        .card {
+            background: #1e293b;
+            border: none;
+            border-radius: 15px;
+        }
+
+        .form-control {
+            background: #0b1220;
+            color: white;
+            border: 1px solid #334155;
+        }
+
+        .btn-primary { background: #6366f1; border: none; }
+        .btn-success { background: #22c55e; border: none; }
+        .btn-warning { background: #f59e0b; border: none; }
+        .btn-danger { background: #ef4444; border: none; }
+    </style>
+</head>
+
+<body>
+
+<div class="container mt-5">
+
+    <h2>🔥 Web Board PRO MAX</h2>
+
+    {% if session.user %}
+        <p>👋 {{ session.user }} | <a href="/logout" class="text-danger">Logout</a></p>
+
+        <form action="/create" method="POST">
+            <input name="title" class="form-control mb-2" placeholder="Title">
+            <textarea name="content" class="form-control mb-2" placeholder="Content"></textarea>
+            <button class="btn btn-primary w-100">Post</button>
+        </form>
+
+    {% else %}
+        <a href="/login" class="btn btn-primary">Login</a>
+        <a href="/register" class="btn btn-success">Register</a>
+    {% endif %}
+
+    <hr>
+
+    {% for post in posts %}
+
+    <div class="card p-3 mb-3">
+
+        <h4>✨ {{ post[1] }}</h4>
+        <p>{{ post[2] }}</p>
+        <small>{{ post[3] }}</small>
+
+        <div class="mt-2">
+            <a href="/edit/{{ post[0] }}" class="btn btn-warning btn-sm">Edit</a>
+            <a href="/like/{{ post[0] }}" class="btn btn-danger btn-sm">❤️ Like</a>
+        </div>
+
+        <hr>
+
+        <!-- COMMENT -->
+        <form action="/comment/{{ post[0] }}" method="POST">
+            <input name="content" class="form-control mb-2" placeholder="comment...">
+            <button class="btn btn-success btn-sm">Comment</button>
+        </form>
+
+        {% for c in comments %}
+            {% if c[1] == post[0] %}
+                <div class="ms-2 text-info">💬 {{ c[2] }}</div>
+            {% endif %}
+        {% endfor %}
+
+    </div>
+
+    {% endfor %}
+
+</div>
+
+</body>
+</html>
