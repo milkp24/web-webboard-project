@@ -1,86 +1,116 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Web Board PRO MAX</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-
-    <style>
-        body {
-            background: radial-gradient(circle, #0f172a, #020617);
-            color: white;
-        }
-
-        .card {
-            background: #1e293b;
-            border: none;
-            border-radius: 15px;
-        }
-
-        .form-control {
-            background: #0b1220;
-            color: white;
-            border: 1px solid #334155;
-        }
-
-        .btn-primary { background: #6366f1; border: none; }
-        .btn-success { background: #22c55e; border: none; }
-        .btn-warning { background: #f59e0b; border: none; }
-        .btn-danger { background: #ef4444; border: none; }
-    </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Webboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
+<body class="bg-light">
 
-<body>
-
-<div class="container mt-5">
-
-    <h2>🔥 Web Board PRO MAX</h2>
-
-    {% if session.user %}
-        <p>👋 {{ session.user }} | <a href="/logout" class="text-danger">Logout</a></p>
-
-        <form action="/create" method="POST">
-            <input name="title" class="form-control mb-2" placeholder="Title">
-            <textarea name="content" class="form-control mb-2" placeholder="Content"></textarea>
-            <button class="btn btn-primary w-100">Post</button>
-        </form>
-
-    {% else %}
-        <a href="/login" class="btn btn-primary">Login</a>
-        <a href="/register" class="btn btn-success">Register</a>
-    {% endif %}
-
-    <hr>
-
-    {% for post in posts %}
-
-    <div class="card p-3 mb-3">
-
-        <h4>✨ {{ post[1] }}</h4>
-        <p>{{ post[2] }}</p>
-        <small>{{ post[3] }}</small>
-
-        <div class="mt-2">
-            <a href="/edit/{{ post[0] }}" class="btn btn-warning btn-sm">Edit</a>
-            <a href="/like/{{ post[0] }}" class="btn btn-danger btn-sm">❤️ Like</a>
-        </div>
-
-        <hr>
-
-        <!-- COMMENT -->
-        <form action="/comment/{{ post[0] }}" method="POST">
-            <input name="content" class="form-control mb-2" placeholder="comment...">
-            <button class="btn btn-success btn-sm">Comment</button>
-        </form>
-
-        {% for c in comments %}
-            {% if c[1] == post[0] %}
-                <div class="ms-2 text-info">💬 {{ c[2] }}</div>
+<nav class="navbar navbar-dark bg-dark mb-4">
+    <div class="container" style="max-width: 800px;">
+        <a class="navbar-brand" href="/">🔥 Webboard</a>
+        <div class="d-flex text-white align-items-center gap-3">
+            {% if session['username'] %}
+                <span>สวัสดี, <strong>{{ session['username'] }}</strong></span>
+                <a href="/logout" class="btn btn-sm btn-danger">Logout</a>
+            {% else %}
+                <a href="/login" class="btn btn-sm btn-outline-light">Login</a>
+                <a href="/register" class="btn btn-sm btn-primary">Register</a>
             {% endif %}
-        {% endfor %}
+        </div>
+    </div>
+</nav>
 
+<div class="container" style="max-width: 800px;">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <div class="card p-3 mb-4 shadow-sm">
+        {% if session['username'] %}
+            <form action="/create" method="POST" enctype="multipart/form-data">
+                <input name="title" class="form-control mb-2" placeholder="Title" required>
+                <textarea name="content" class="form-control mb-2" placeholder="What's on your mind?, {{ session['username'] }}" rows="3" required></textarea>
+                
+                <div class="mb-2">
+                    <label class="form-label small text-muted mb-1">แนบรูปภาพประกอบ (ถ้ามี):</label>
+                    <input type="file" name="image" class="form-control form-control-sm" accept="image/*">
+                </div>
+                
+                <button class="btn btn-primary">Post</button>
+            </form>
+        {% else %}
+            <div class="text-center py-2">
+                <p class="mb-2 text-muted">เข้าสู่ระบบเพื่อร่วมแบ่งปันเรื่องราวและอัปโหลดรูปภาพพูดคุยกับคอมมูนิตี้</p>
+                <a href="/login" class="btn btn-sm btn-primary">เข้าสู่ระบบเลย</a>
+            </div>
+        {% endif %}
     </div>
 
-    {% endfor %}
+    {% if posts %}
+        {% for post in posts %}
+        <div class="card mb-3 shadow-sm">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <h5 class="mb-0">{{ post['title'] }}</h5>
+                    <span class="badge bg-secondary">โดย: {{ post['author'] if post['author'] else 'ไม่ระบุชื่อ' }}</span>
+                </div>
+                
+                <p class="text-secondary my-3">{{ post['content'] }}</p>
+
+                {% if post['image_filename'] %}
+                    <div class="mb-3 text-center bg-black rounded border overflow-hidden" style="max-height: 400px;">
+                        <img src="{{ url_for('static', filename='uploads/' + post['image_filename']) }}" class="img-fluid" style="max-height: 400px; object-fit: contain;" alt="Post image">
+                    </div>
+                {% endif %}
+
+                <div class="d-flex gap-2 mb-3">
+                    <a href="/like/{{ post['id'] }}" class="btn btn-sm btn-outline-danger">
+                        ❤️ Like ({{ post['like_count'] }})
+                    </a>
+                    <span class="btn btn-sm btn-outline-secondary disabled">
+                        💬 Comments ({{ post['comment_count'] }})
+                    </span>
+                    {% if session['username'] and session['username'] == post['author'] %}
+                        <a href="/edit/{{ post['id'] }}" class="btn btn-sm btn-outline-primary">✏️ Edit</a>
+                        <a href="/delete/{{ post['id'] }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('คุณแน่ใจใช่ไหมว่าต้องการลบโพสต์และรูปภาพนี้?')">🗑️ Delete</a>
+                    {% endif %}
+                </div>
+
+                <div class="comments-list mb-2">
+                    {% for comment in comments %}
+                        {% if comment['post_id'] == post['id'] %}
+                            <div class="p-2 mb-1 bg-light border rounded small text-dark d-flex justify-content-between">
+                                <span>💬 {{ comment['content'] }}</span>
+                                <small class="text-muted">โดย: {{ comment['author'] if comment['author'] else 'ทั่วไป' }}</small>
+                            </div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+
+                {% if session['username'] %}
+                    <form action="/comment/{{ post['id'] }}" method="POST" class="mt-2">
+                        <input name="content" class="form-control form-control-sm" placeholder="Write comment..." required>
+                    </form>
+                {% endif %}
+
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="text-center text-muted my-5">
+            <p>ยังไม่มีโพสต์ในตอนนี้ มาเริ่มสร้างโพสต์แรกกัน!</p>
+        </div>
+    {% endif %}
 
 </div>
 

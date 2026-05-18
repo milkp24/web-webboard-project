@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body style="background:#0f172a; color:white;">
+<div class="container mt-5" style="max-width: 450px;">
+    <div class="card bg-dark text-white p-4 border-secondary shadow">
+        <h3 class="mb-4 text-center">📝 Register สมาชิกใหม่</h3>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} small py-2" role="alert">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form action="/register" method="POST">
+            <div class="mb-3">
+                <label class="form-label small text-secondary">Username</label>
+                <input name="username" class="form-control bg-dark text-white border-secondary" required placeholder="ตั้งชื่อผู้ใช้งาน">
+            </div>
+            <div class="mb-4">
+                <label class="form-label small text-secondary">Password</label>
+                <input type="password" name="password" class="form-control bg-dark text-white border-secondary" required placeholder="ตั้งรหัสผ่าน">
+            </div>
+            <button class="btn btn-primary w-100 mb-3">สมัครสมาชิก</button>
+            <div class="text-center small">
+                <a href="/login" class="text-secondary text-decoration-none">มีบัญชีอยู่แล้ว? เข้าสู่ระบบที่นี่</a>
+            </div>
+        </form>
+    </div>
+</div>
+</body>
+</html>

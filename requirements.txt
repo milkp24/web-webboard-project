@@ -1,4 +1,2 @@
 flask
-flask-mysqldb
-flask-bcrypt
 gunicorn

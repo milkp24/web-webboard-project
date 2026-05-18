@@ -1,159 +1,276 @@
-from flask import Flask, render_template, request, redirect, session
-from flask_mysqldb import MySQL
-from flask_bcrypt import Bcrypt
+from flask import Flask, render_template, request, redirect, session, flash, url_for
+import sqlite3
 import os
+import uuid
+from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-app.secret_key = "webboard_secret"
+app.secret_key = "super-secret-key-change-this-in-production"
 
-bcrypt = Bcrypt(app)
+# ตั้งค่าตำแหน่งที่ใช้เก็บรูปภาพโพสต์ และประเภทไฟล์ที่อนุญาต
+UPLOAD_FOLDER = os.path.join('static', 'uploads')
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# ---------------- MYSQL (สำหรับ deploy ต้องเปลี่ยนเป็น cloud DB) ----------------
-app.config['MYSQL_HOST'] = os.getenv("MYSQL_HOST", "localhost")
-app.config['MYSQL_USER'] = os.getenv("MYSQL_USER", "root")
-app.config['MYSQL_PASSWORD'] = os.getenv("MYSQL_PASSWORD", "")
-app.config['MYSQL_DB'] = os.getenv("MYSQL_DB", "webboard_db")
+# ตรวจสอบประเภทไฟล์รูปภาพ
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-mysql = MySQL(app)
+# ---------------- DB CONNECT ----------------
+def connect():
+    if os.environ.get("RENDER"):
+        db_path = "/data/webboard.db"
+    else:
+        db_path = "webboard.db"
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    return conn
 
-# ---------------- HOME ----------------
-@app.route('/')
-def home():
-    cur = mysql.connection.cursor()
+# ---------------- INIT DB ----------------
+def init_db():
+    conn = connect()
+    c = conn.cursor()
 
-    cur.execute("SELECT * FROM posts ORDER BY id DESC")
-    posts = cur.fetchall()
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE,
+        password TEXT
+    )
+    """)
 
-    cur.execute("SELECT * FROM comments")
-    comments = cur.fetchall()
+    # อัปเดตตาราง posts: เพิ่มคอลัมน์ image_filename เพื่อเก็บชื่อไฟล์ภาพ
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS posts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        content TEXT,
+        author TEXT,
+        image_filename TEXT
+    )
+    """)
 
-    cur.execute("SELECT * FROM likes")
-    likes = cur.fetchall()
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS comments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        post_id INTEGER,
+        content TEXT,
+        author TEXT
+    )
+    """)
 
-    cur.close()
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS likes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        post_id INTEGER,
+        user TEXT,
+        UNIQUE(post_id, user)
+    )
+    """)
 
-    return render_template("index.html",
-                           posts=posts,
-                           comments=comments,
-                           likes=likes)
+    conn.commit()
+    conn.close()
+    
+    # สร้างโฟลเดอร์สำหรับอัปโหลดรูปภาพบนเครื่องคอมของคุณอัตโนมัติหากยังไม่มี
+    if not os.path.exists(UPLOAD_FOLDER):
+        os.makedirs(UPLOAD_FOLDER)
 
-# ---------------- REGISTER ----------------
-@app.route('/register', methods=['GET', 'POST'])
+# ---------------- REGISTER & LOGIN & LOGOUT ----------------
+@app.route("/register", methods=["GET", "POST"])
 def register():
-    if request.method == 'POST':
-        username = request.form['username']
-        email = request.form['email']
-        password = bcrypt.generate_password_hash(request.form['password']).decode('utf-8')
-
-        cur = mysql.connection.cursor()
-        cur.execute("INSERT INTO users(username,email,password) VALUES(%s,%s,%s)",
-                    (username, email, password))
-        mysql.connection.commit()
-        cur.close()
-
-        return redirect('/login')
-
+    if request.method == "POST":
+        username = request.form["username"].strip()
+        password = request.form["password"]
+        if not username or not password:
+            flash("โปรดกรอกข้อมูลให้ครบถ้วน", "danger")
+            return redirect("/register")
+        hashed_password = generate_password_hash(password)
+        conn = connect()
+        c = conn.cursor()
+        try:
+            c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed_password))
+            conn.commit()
+            flash("สมัครสมาชิกสำเร็จ! โปรดล็อกอินเพื่อเข้าสู่ระบบ", "success")
+            return redirect("/login")
+        except sqlite3.IntegrityError:
+            flash("ชื่อผู้ใช้นี้ถูกใช้ไปแล้ว", "danger")
+        finally:
+            conn.close()
     return render_template("register.html")
 
-# ---------------- LOGIN ----------------
-@app.route('/login', methods=['GET', 'POST'])
+@app.route("/login", methods=["GET", "POST"])
 def login():
-    if request.method == 'POST':
-        email = request.form['email']
-        password = request.form['password']
-
-        cur = mysql.connection.cursor()
-        cur.execute("SELECT * FROM users WHERE email=%s", [email])
-        user = cur.fetchone()
-        cur.close()
-
-        if user and bcrypt.check_password_hash(user[3], password):
-            session['user'] = user[1]
-            return redirect('/')
+    if request.method == "POST":
+        username = request.form["username"].strip()
+        password = request.form["password"]
+        conn = connect()
+        c = conn.cursor()
+        c.execute("SELECT * FROM users WHERE username = ?", (username,))
+        user = c.fetchone()
+        conn.close()
+        if user and check_password_hash(user["password"], password):
+            session["username"] = user["username"]
+            flash(f"ยินดีต้อนรับคุณ {user['username']}", "success")
+            return redirect("/")
         else:
-            return "Login Failed"
-
+            flash("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง", "danger")
     return render_template("login.html")
 
-# ---------------- LOGOUT ----------------
-@app.route('/logout')
+@app.route("/logout")
 def logout():
-    session.clear()
-    return redirect('/')
+    session.pop("username", None)
+    flash("ออกจากระบบเรียบร้อยแล้ว", "info")
+    return redirect("/")
 
-# ---------------- CREATE POST ----------------
-@app.route('/create', methods=['POST'])
+# ---------------- HOME ----------------
+@app.route("/")
+def home():
+    conn = connect()
+    c = conn.cursor()
+    c.execute("""
+    SELECT 
+        p.*,
+        (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) as comment_count,
+        (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id) as like_count
+    FROM posts p
+    ORDER BY p.id DESC
+    """)
+    posts = c.fetchall()
+    c.execute("SELECT * FROM comments ORDER BY id ASC")
+    all_comments = c.fetchall()
+    conn.close()
+    return render_template("index.html", posts=posts, comments=all_comments)
+
+# ---------------- CREATE POST (ปรับปรุงระบอัปโหลดภาพ) ----------------
+@app.route("/create", methods=["POST"])
 def create():
-    if 'user' not in session:
-        return redirect('/login')
+    if "username" not in session:
+        flash("กรุณาล็อกอินก่อนสร้างโพสต์", "danger")
+        return redirect("/login")
 
-    title = request.form['title']
-    content = request.form['content']
+    title = request.form["title"]
+    content = request.form["content"]
+    image_filename = None
 
-    cur = mysql.connection.cursor()
-    cur.execute("INSERT INTO posts(title,content) VALUES(%s,%s)", (title, content))
-    mysql.connection.commit()
-    cur.close()
+    # ตรวจสอบว่าผู้ใช้แนบไฟล์มาในฟอร์มหรือไม่
+    if 'image' in request.files:
+        file = request.files['image']
+        # ถ้ามีการเลือกไฟล์จริง และเป็นนามสกุลที่ถูกต้อง
+        if file and file.filename != '' and allowed_file(file.filename):
+            # สุ่มชื่อไฟล์ใหม่ด้วย UUID ป้องกันปัญหาชื่อไฟล์ซ้ำในเซิร์ฟเวอร์
+            ext = file.filename.rsplit('.', 1)[1].lower()
+            unique_filename = f"{uuid.uuid4().hex}.{ext}"
+            
+            # บันทึกไฟล์ลงในโฟลเดอร์ static/uploads
+            file.save(os.path.join(app.config['UPLOAD_FOLDER'], unique_filename))
+            image_filename = unique_filename
 
-    return redirect('/')
+    conn = connect()
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO posts(title, content, author, image_filename) VALUES(?,?,?,?)",
+        (title, content, session["username"], image_filename)
+    )
+    conn.commit()
+    conn.close()
+    return redirect("/")
 
-# ---------------- COMMENT ----------------
-@app.route('/comment/<int:post_id>', methods=['POST'])
-def comment(post_id):
-    content = request.form['content']
+# ---------------- COMMENT & LIKE ----------------
+@app.route("/comment/<int:pid>", methods=["POST"])
+def comment(pid):
+    if "username" not in session:
+        flash("กรุณาล็อกอินก่อนแสดงความคิดเห็น", "danger")
+        return redirect("/login")
+    conn = connect()
+    c = conn.cursor()
+    c.execute("INSERT INTO comments(post_id, content, author) VALUES(?,?,?)", (pid, request.form["content"], session["username"]))
+    conn.commit()
+    conn.close()
+    return redirect("/")
 
-    cur = mysql.connection.cursor()
-    cur.execute("INSERT INTO comments(post_id,content) VALUES(%s,%s)", (post_id, content))
-    mysql.connection.commit()
-    cur.close()
+@app.route("/like/<int:pid>")
+def like(pid):
+    if "username" not in session:
+        flash("กรุณาล็อกอินก่อนกดถูกใจ", "danger")
+        return redirect("/login")
+    conn = connect()
+    c = conn.cursor()
+    try:
+        c.execute("INSERT INTO likes(post_id, user) VALUES(?,?)", (pid, session["username"]))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        c.execute("DELETE FROM likes WHERE post_id = ? AND user = ?", (pid, session["username"]))
+        conn.commit()
+    finally:
+        conn.close()
+    return redirect("/")
 
-    return redirect('/')
-
-# ---------------- LIKE ----------------
-@app.route('/like/<int:post_id>')
-def like(post_id):
-    if 'user' not in session:
-        return redirect('/login')
-
-    cur = mysql.connection.cursor()
-
-    cur.execute("SELECT * FROM likes WHERE post_id=%s AND user=%s",
-                (post_id, session['user']))
-    exist = cur.fetchone()
-
-    if not exist:
-        cur.execute("INSERT INTO likes(post_id,user) VALUES(%s,%s)",
-                    (post_id, session['user']))
-        mysql.connection.commit()
-
-    cur.close()
-    return redirect('/')
-
-# ---------------- EDIT ----------------
-@app.route('/edit/<int:id>')
-def edit(id):
-    cur = mysql.connection.cursor()
-    cur.execute("SELECT * FROM posts WHERE id=%s", [id])
-    post = cur.fetchone()
-    cur.close()
-
+# ---------------- EDIT & UPDATE ----------------
+@app.route("/edit/<int:post_id>")
+def edit(post_id):
+    if "username" not in session:
+        flash("กรุณาล็อกอินก่อน", "danger")
+        return redirect("/login")
+    conn = connect()
+    c = conn.cursor()
+    c.execute("SELECT * FROM posts WHERE id=?", (post_id,))
+    post = c.fetchone()
+    conn.close()
+    if post and post["author"] != session["username"]:
+        flash("คุณไม่มีสิทธิ์แก้ไขโพสต์นี้", "danger")
+        return redirect("/")
     return render_template("edit.html", post=post)
 
-# ---------------- UPDATE ----------------
-@app.route('/update/<int:id>', methods=['POST'])
-def update(id):
-    title = request.form['title']
-    content = request.form['content']
+@app.route("/update/<int:post_id>", methods=["POST"])
+def update(post_id):
+    if "username" not in session:
+        return redirect("/login")
+    conn = connect()
+    c = conn.cursor()
+    c.execute("SELECT author, image_filename FROM posts WHERE id=?", (post_id,))
+    post = c.fetchone()
+    
+    if post and post["author"] == session["username"]:
+        c.execute("UPDATE posts SET title=?, content=? WHERE id=?", (request.form["title"], request.form["content"], post_id))
+        conn.commit()
+        flash("แก้ไขโพสต์สำเร็จ", "success")
+    else:
+        flash("คุณไม่มีสิทธิ์แก้ไขโพสต์นี้", "danger")
+    conn.close()
+    return redirect("/")
 
-    cur = mysql.connection.cursor()
-    cur.execute("UPDATE posts SET title=%s, content=%s WHERE id=%s",
-                (title, content, id))
-    mysql.connection.commit()
-    cur.close()
+# ---------------- DELETE (ปรับปรุงเพื่อลบไฟล์ภาพออกจากเครื่องด้วย) ----------------
+@app.route("/delete/<int:post_id>")
+def delete_post(post_id):
+    if "username" not in session:
+        return redirect("/login")
 
-    return redirect('/')
+    conn = connect()
+    c = conn.cursor()
+    c.execute("SELECT author, image_filename FROM posts WHERE id=?", (post_id,))
+    post = c.fetchone()
+    
+    if post and post["author"] == session["username"]:
+        # ลบไฟล์ภาพออกจากโฟลเดอร์จริงๆ ด้วย เพื่อประหยัดพื้นที่ดิสก์
+        if post["image_filename"]:
+            try:
+                os.remove(os.path.join(app.config['UPLOAD_FOLDER'], post["image_filename"]))
+            except FileNotFoundError:
+                pass
 
-# ---------------- DEPLOY ----------------
+        c.execute("DELETE FROM posts WHERE id=?", (post_id,))
+        c.execute("DELETE FROM comments WHERE post_id=?", (post_id,))
+        c.execute("DELETE FROM likes WHERE post_id=?", (post_id,))
+        conn.commit()
+        flash("ลบโพสต์และรูปภาพเรียบร้อยแล้ว", "success")
+    else:
+        flash("คุณไม่มีสิทธิ์ลบโพสต์นี้", "danger")
+
+    conn.close()
+    return redirect("/")
+
 if __name__ == "__main__":
+    init_db()
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, debug=True)
