@@ -17,9 +17,14 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # ---------------- DB CONNECT ----------------
-# ใช้ฐานข้อมูลบน Memory (RAM) เพื่อเลี่ยงปัญหาสิทธิ์ Read-Only บน Render
+# [แก้ไขล่าสุด ⭐️] ย้ายไปเซฟในโฟลเดอร์ /tmp ของ Render เพื่อให้จำข้อมูลสมาชิกได้จริง ไม่หายตอนกดปิดคอนเนกชัน
 def connect():
-    conn = sqlite3.connect(":memory:")
+    if os.environ.get("RENDER"):
+        db_path = "/tmp/webboard_production.db"
+    else:
+        db_path = os.path.join(BASE_DIR, "webboard_v2.db")
+        
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -110,7 +115,6 @@ def logout():
     return redirect("/")
 
 # ---------------- HOME ----------------
-# [แก้ไขล่าสุด ⭐️] ใส่บล็อก try-except ดักจับปัญหา SQL เพื่อการันตีหน้าเว็บเปิดได้ชัวร์ 100%
 @app.route("/", methods=["GET", "HEAD"])
 def home():
     if request.method == "HEAD":
@@ -136,7 +140,6 @@ def home():
         all_comments = c.fetchall()
         conn.close()
     except Exception as e:
-        # ถ้าระบบคลาวด์รัน SQL สะดุด ให้พิมพ์ฟ้องใน Logs แต่ยังยอมให้หน้าหน้าแรกแสดงผลแบบปลอดภัย
         print(f"--- Database temporal bypass: {e} ---")
         posts = []
         all_comments = []
@@ -268,7 +271,6 @@ def delete_post(post_id):
     conn.close()
     return redirect("/")
 
-# เรียกสร้างฐานข้อมูลใน RAM ตอนแอปพลิเคชันตื่น
 init_db()
 
 if __name__ == "__main__":
